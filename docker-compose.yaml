@@ -1,0 +1,82 @@
+version: '3'
+services:
+  zookeeper:
+    container_name: zookeeper
+    image: confluentinc/cp-zookeeper:7.3.2
+    ports:
+     - 2181:2181
+     - 2888:2888
+     - 3888:3888
+    environment:
+     - ZOOKEEPER_CLIENT_PORT=2181
+     - ZOOKEEPER_TICK_TIME=2000 
+  kafka:
+    container_name: kafka
+    image: confluentinc/cp-kafka:7.3.2
+    ports:
+     - 29092:29092
+     - 9999:9999
+    links:
+     - zookeeper
+    environment:
+     - ZOOKEEPER_CONNECT=zookeeper:2181
+     - KAFKA_BROKER_ID=1
+     - KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181
+     - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+     - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+     - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+     - KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1
+     - KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1
+     - KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0
+     - KAFKA_JMX_PORT=9999
+     - KAFKA_JMX_HOSTNAME=localhost
+  #Postgresql Database container.
+  postgres:
+    container_name: postgres
+    image: debezium/postgres:15-alpine
+    environment:
+      POSTGRES_USER: hurban
+      POSTGRES_PASSWORD: P4ssw0rd
+      PGPASSWORD: P4ssw0rd
+    ports:
+      - 5432:5432
+    volumes:
+      - ./postgres-init:/docker-entrypoint-initdb.d
+
+  #Liquibase container to initialize or update database.
+  liquibase-update:
+    container_name: liquibase
+    image: liquibase/liquibase:4.20.0
+    depends_on:
+      - postgres
+    working_dir: /db
+    volumes:
+      - ./db:/db
+      # - ./99-sample-data.sql:/db/scripts/99-sample-data.sql
+    command: --username=hurban --password=P4ssw0rd --url=jdbc:postgresql://postgres/playground --changeLogFile=changelog.xml --log-level=info update
+
+
+  connect:
+    container_name: debezium-connect
+    image: quay.io/debezium/connect:2.0
+    ports:
+     - 8083:8083
+    links:
+     - zookeeper
+     - kafka
+     - postgres
+    environment:
+     - BOOTSTRAP_SERVERS=kafka:9092
+     - GROUP_ID=1
+     - CONFIG_STORAGE_TOPIC=my_connect_configs
+     - OFFSET_STORAGE_TOPIC=my_connect_offsets
+     - STATUS_STORAGE_TOPIC=my_connect_statuses
+  kafka-ui:
+    image: provectuslabs/kafka-ui
+    container_name: kafka-ui
+    ports:
+      - "8080:8080"
+    restart: always
+    environment:
+      - KAFKA_CLUSTERS_0_NAME=local
+      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:9092
